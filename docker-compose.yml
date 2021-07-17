@@ -1,0 +1,67 @@
+version: '3.3'
+
+services:
+  my_celetytest_db:
+    image: postgres:10.1-alpine
+    volumes:
+      - postgres_data:/var/lib/postgresql/data/
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_DB: postgres
+  my_celerytest_web:
+    restart: always
+    build:
+      context: ./
+      dockerfile: Dockerfile
+    command: bash -c "python /usr/src/celery_test/manage.py migrate --noinput &&
+      python /usr/src/celery_test/manage.py runserver 0.0.0.0:8000"
+    volumes:
+      - .:/usr/src/celery_test
+    ports:
+      - 8000:8000
+    depends_on:
+      - my_celetytest_db
+  redis:
+    image: redis:alpine
+    restart: always
+  celery_worker:
+    build:
+      context: ./
+    command: bash -c "cd /usr/src/celery_test && celery -A celerytest worker -l info"
+    container_name: celery_worker
+    volumes:
+      - .:/usr/src/celery_test
+    depends_on:
+      - my_celerytest_web
+      - my_celetytest_db
+      - redis
+    restart: always
+  celery_beat:
+    build:
+      context: ./
+    command: bash -c "cd /usr/src/celery_test && celery -A celerytest beat -l info"
+    container_name: celery_beat
+    volumes:
+      - .:/usr/src/celery_test
+    depends_on:
+      - my_celerytest_web
+      - my_celetytest_db
+      - redis
+    restart: always
+  flower_container:
+    build: ./
+    command: bash -c "cd /usr/src/celery_test && flower -A celerytest --port=5555"
+    volumes:
+      - .:/usr/src/celery_test
+    working_dir: /celery_test
+    ports:
+      - 5555:5555
+    depends_on:
+      - my_celerytest_web
+      - my_celetytest_db
+      - redis
+      - celery_worker
+      - celery_beat
+
+volumes:
+  postgres_data:
